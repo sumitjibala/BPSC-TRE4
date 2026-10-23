@@ -1,6 +1,13 @@
-# TRE 4.0 Computer Science Success Academy — Phase 1
+# TRE 4.0 Computer Science Success Academy — Phase 1 + Phase 2
 
 BPSC TRE 4.0 (PGT, Class 11–12) Computer Science ki taiyaari ke liye personal study platform.
+
+## Phase 2 me naya (AI Learning)
+- **AI Tutor chat**: Hinglish personal teacher — syllabus, tumhare weak topics, due revisions aur uploaded documents ke hisse context me jaate hain; document-based jawab me source cite hota hai. Gemini key na ho to basic sawalo (aaj ka plan, galtiyon ka pattern, lesson summary) ke jawab offline bhi milte hain
+- **AI Explain**: har lesson me "AI se aur gehrai se samjho" — vistaar wala explanation, 3 examples, misconceptions aur one-page revision sheet (ek baar banne par save rehta hai)
+- **AI MCQ Generator**: topic/difficulty/count chun kar naye original practice sawal — har sawal pehle format/answer validate hota hai, hamesha "AI Generated" label ke saath aata hai (kabhi PYQ nahi kaha jata)
+- **YouTube verified search**: `YOUTUBE_API_KEY` lagne par lesson ke andar asli video list (title + channel) aati hai
+- Gemini key sirf server par (Render env) rehti hai — browser ko kabhi nahi jaati. Key na ho to baaki saari app normal chalti hai
 
 ## Phase 1 me kya-kya hai
 - Responsive dashboard: aaj ka plan, syllabus progress, streak, due revisions, kamzor topics, recent results
