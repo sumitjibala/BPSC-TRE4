@@ -14,7 +14,9 @@ const defaultState = () => ({
   plannerDone: {},     // 'YYYY-MM-DD' -> {taskKey: true}
   studyLog: {},        // 'YYYY-MM-DD' -> minutes (approx from completed tasks)
   bookmarks: [],       // question ids
-  settings: { dailyMinutes: 150, theme: "light" },
+  tutorChat: [],       // {role:'user'|'ai', text}
+  aiLessons: {},       // topicId -> AI explain data (cache)
+  settings: { dailyMinutes: 150, theme: "light", displayName: "Gagan Sir" },
   lastStudyDate: null,
   streak: 0,
 });
@@ -23,6 +25,8 @@ try {
   const raw = localStorage.getItem(LS_KEY);
   if (raw) state = Object.assign(defaultState(), JSON.parse(raw));
 } catch (e) { /* fresh state */ }
+if (!Array.isArray(state.tutorChat)) state.tutorChat = [];
+if (!state.aiLessons || typeof state.aiLessons !== "object") state.aiLessons = {};
 function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { toast("Storage full hai — purane documents hatao."); } }
 
 const $ = (sel) => document.querySelector(sel);
@@ -30,6 +34,8 @@ const view = $("#view");
 const todayStr = (d = new Date()) => d.toISOString().slice(0, 10);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2600); }
+function userName() { return (state.settings && state.settings.displayName) || "Gagan Sir"; }
+function paintUserName() { const el = $("#brandUser"); if (el) el.textContent = "👋 Welcome, " + userName(); }
 
 /* Syllabus helpers */
 const ALL_TOPICS = [];
@@ -78,7 +84,7 @@ $("#menuBtn").addEventListener("click", () => $("#sidebar").classList.toggle("op
 function go(v, arg) {
   currentView = v;
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
-  ({ dashboard: renderDashboard, syllabus: renderSyllabus, learn: renderLearn, documents: renderDocuments, practice: renderPracticeHome, mock: renderMockHome, planner: renderPlanner, revision: renderRevision, errors: renderErrors, notes: renderNotes, analytics: renderAnalytics, settings: renderSettings }[v] || renderDashboard)(arg);
+  ({ dashboard: renderDashboard, syllabus: renderSyllabus, learn: renderLearn, tutor: renderTutor, documents: renderDocuments, practice: renderPracticeHome, mock: renderMockHome, planner: renderPlanner, revision: renderRevision, errors: renderErrors, notes: renderNotes, analytics: renderAnalytics, settings: renderSettings }[v] || renderDashboard)(arg);
   window.scrollTo({ top: 0 });
 }
 $("#banner").innerHTML = "⚠️ <b>" + esc(window.SYLLABUS_META.label) + "</b> — " + esc(window.SYLLABUS_META.examPatternNote);
@@ -91,7 +97,7 @@ function renderDashboard() {
   const lastAttempts = state.attempts.slice(-3).reverse();
   const weak = weakestTopics(3);
   view.innerHTML = `
-    <h1>Namaste! Aaj ki padhai shuru karte hain 🙏</h1>
+    <h1>Namaste, ${esc(userName())}! 🙏 Aaj ki padhai shuru karte hain</h1>
     <p class="muted">Target: BPSC TRE 4.0 — PGT Computer Science (Class 11–12) • Roz ka target: ${state.settings.dailyMinutes} minute</p>
     <div class="grid cols-4">
       <div class="card"><div class="stat-num">${sp.pct}%</div><div class="stat-label">Syllabus complete (${sp.done}/${sp.total} topics)</div><div class="progress" style="margin-top:8px"><div style="width:${sp.pct}%"></div></div></div>
@@ -222,6 +228,8 @@ function openLesson(id) {
       <div id="ytBox"><button class="ghost-btn" onclick="loadVideos('${esc(t.name)}')">Is topic ke videos khojo</button>
       <a class="btn ghost-btn" target="_blank" rel="noopener" href="https://www.youtube.com/results?search_query=${ytQuery}">YouTube par search kholo ↗</a>
       <p class="small muted">Video links server se aate hain — API key ho to verified list, warna seedha YouTube search khulta hai. Koi link invent nahi hota.</p></div>
+      <h3>🤖 AI Teacher — Aur Gehrai Se Samjho (Phase 2)</h3>
+      <div id="aiExplainBox">${state.aiLessons[t.id] ? renderAiLesson(state.aiLessons[t.id]) : `<button onclick="aiExplainTopic('${t.id}')">AI se is topic ko aur vistaar se samjho</button> <span class="small muted">Gemini key lagi ho tabhi chalega — na ho to Settings me status dikhega.</span>`}</div>
     </div>
     <div class="card" style="margin-top:14px">
       <h3 style="margin-top:0">G. Understanding Check (3 sawal)</h3>
@@ -269,6 +277,23 @@ function completeLesson(id) {
   state.progress[id] = p; save(); bumpStreak();
   toast("Lesson complete! Revision schedule: Day 1, 3, 7, 14, 30 (performance ke hisaab se badlega).");
   go("revision");
+}
+function renderAiLesson(d) {
+  return `<div class="explain" style="border-color:var(--brand2)"><b>Vistaar se:</b><br>${esc(d.deepExplanation).replace(/\n/g, "<br>")}</div>
+  <h4>📌 Aur Examples</h4>${(d.examples || []).map((e) => `<div class="explain">${esc(e)}</div>`).join("")}
+  <h4>🚫 Aam Galtiyan (Misconceptions)</h4><ul>${(d.misconceptions || []).map((m) => `<li>${esc(m)}</li>`).join("")}</ul>
+  <h4>⚡ One-Page Revision Sheet</h4><ul>${(d.revisionSheet || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>`;
+}
+async function aiExplainTopic(id) {
+  const t = topicById(id); if (!t) return;
+  const box = document.getElementById("aiExplainBox");
+  box.innerHTML = '<p class="muted">AI samjha raha hai… 10-20 second lag sakte hain.</p>';
+  try {
+    const r = await fetch("/api/ai/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: t.name, unit: t.unit, intro: t.intro, points: t.points }) });
+    const d = await r.json();
+    if (d.mode === "ai") { state.aiLessons[id] = d.data; save(); box.innerHTML = renderAiLesson(d.data); }
+    else box.innerHTML = `<div class="explain" style="border-color:var(--warn)">⚠️ ${esc(d.note || "AI abhi uplabdh nahi hai.")}<br><span class="small">Upar wala normal lesson aur practice bina AI ke bhi pura chalta hai.</span></div>`;
+  } catch (e) { box.innerHTML = '<p class="muted">Server se sampark nahi hua.</p>'; }
 }
 async function loadVideos(topicName) {
   const box = document.getElementById("ytBox");
@@ -388,8 +413,31 @@ function renderPracticeHome() {
       <div class="field"><label>Mode</label><select id="pMode"><option value="each">Har sawal ke baad answer + explanation</option><option value="end">Aakhir me result (exam jaisa)</option></select></div>
       <button onclick="startPracticeFromForm()">Practice Shuru Karo</button>
     </div>
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin-top:0">🤖 AI MCQ Generator (Phase 2)</h3>
+      <p class="small muted">Gemini AI tumhare liye naye original practice sawal banayega. Ye sawal hamesha <b>"AI Generated"</b> label ke saath aayenge — asli PYQ kabhi nahi kahe jayenge. Har sawal format-check hokar hi aata hai.</p>
+      <div class="grid cols-3">
+        <div class="field"><label>Topic</label><select id="aiTopic">${topics.map((t) => `<option>${esc(t)}</option>`).join("")}</select></div>
+        <div class="field"><label>Count</label><select id="aiCount"><option>5</option><option selected>10</option><option>20</option></select></div>
+        <div class="field"><label>Difficulty</label><select id="aiDiff"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></div>
+      </div>
+      <button onclick="aiGenerateMcq()">AI Sawal Banao aur Practice Shuru Karo</button>
+      <span id="aiGenStatus" class="muted" style="margin-left:8px"></span>
+    </div>
     <h2>Topic-wise Bank</h2>
     <div class="grid cols-3">${topics.map((t) => { const c = window.QUESTIONS.filter((q) => q.topic === t).length; const acc = accuracyFor(t); return `<div class="card"><b>${esc(t)}</b><div class="small muted">${c} sawal • Accuracy: ${acc === null ? "—" : acc + "%"}</div><div style="margin-top:8px"><button class="ghost-btn" onclick="startPractice({topic:'${esc(t)}', count:10})">10 Sawal Practice</button></div></div>`; }).join("")}</div>`;
+}
+async function aiGenerateMcq() {
+  const status = document.getElementById("aiGenStatus");
+  status.textContent = "AI sawal bana raha hai… 15-30 second lag sakte hain.";
+  try {
+    const r = await fetch("/api/ai/generate-mcq", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: document.getElementById("aiTopic").value, count: parseInt(document.getElementById("aiCount").value, 10), difficulty: document.getElementById("aiDiff").value }) });
+    const d = await r.json();
+    if (d.mode === "ai" && d.questions && d.questions.length) {
+      if (d.note) toast(d.note);
+      startQuiz({ title: "AI Generated Practice — " + document.getElementById("aiTopic").value, mode: "AI Practice", topicLabel: document.getElementById("aiTopic").value, questions: d.questions, reviewEach: true });
+    } else status.textContent = d.note || "AI abhi uplabdh nahi hai.";
+  } catch (e) { status.textContent = "Server se sampark nahi hua."; }
 }
 function startPracticeFromForm() {
   startPractice({ topic: document.getElementById("pTopic").value, count: parseInt(document.getElementById("pCount").value, 10), diff: document.getElementById("pDiff").value, reviewEach: document.getElementById("pMode").value === "each" });
@@ -428,7 +476,7 @@ function renderQuiz() {
       <span class="chip">Question ${quiz.idx + 1} / ${total}</span>
       ${quiz.timedSeconds ? `<span class="chip" id="timerBox">⏱ ${fmtTime(quiz.remaining)}</span>` : ""}
       <span class="tag">${esc(q.topic)}</span><span class="tag">${esc(q.diff)}</span>
-      <span class="tag">${q.sourceType === "uploaded" ? "Uploaded PYQ" : "Practice Question"}</span>
+      <span class="tag">${q.sourceType === "uploaded" ? "Uploaded PYQ" : q.sourceType === "ai-generated" ? "AI Generated Practice" : "Practice Question"}</span>
       <button class="ghost-btn" onclick="toggleBookmark('${q.id}')">${state.bookmarks.includes(q.id) ? "★ Bookmarked" : "☆ Bookmark"}</button>
     </div>
     <div class="grid cols-2" style="grid-template-columns:1fr 300px;align-items:start">
@@ -539,6 +587,68 @@ function startSectional(sec) {
   const [title, n, mins] = map[sec];
   const qs = shuffle(window.QUESTIONS.filter((q) => q.section === sec)).slice(0, n);
   startQuiz({ title, mode: "Sectional", topicLabel: title, questions: qs, reviewEach: false, timedSeconds: mins * 60 });
+}
+
+/* ---------------- AI Tutor (Phase 2) ---------------- */
+function renderTutor() {
+  const chat = state.tutorChat;
+  view.innerHTML = `
+    <h1>🤖 AI Tutor — Personal Teacher</h1>
+    <p class="muted">Kuch bhi puchho — "Paging samjhao", "SQL joins shuru se sikhao", "Meri galtiyan batao", "Aaj kya padhun?" Jawab Hinglish me milega. Gemini key na ho to basic sawalo ke jawab offline bhi milenge.</p>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
+      ${["Aaj kya padhun?", "Meri is hafte ki galtiyan batao", "SQL Joins bilkul shuru se samjhao", "Deadlock ko aasan bhasha me samjhao", "Binary Search ek example se samjhao"].map((q) => `<button class="ghost-btn" onclick="askTutor('${q}')">${q}</button>`).join("")}
+      <button class="danger-btn" onclick="clearTutor()">Chat Saaf Karo</button>
+    </div>
+    <div class="card" id="chatBox" style="max-height:55vh;overflow-y:auto">
+      ${chat.length ? chat.map((m) => `<div style="margin:10px 0;${m.role === "user" ? "text-align:right" : ""}"><span class="tag">${m.role === "user" ? "🧑 Tum" : "🤖 AI Teacher"}</span><div class="explain" style="display:block;text-align:left;${m.role === "user" ? "border-color:var(--brand2)" : ""}">${esc(m.text).replace(/\n/g, "<br>")}</div></div>`).join("") : '<p class="muted">Abhi baat-cheet khaali hai. Upar ke kisi chip par dabao ya neeche apna sawal likho.</p>'}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <textarea id="tutorInput" placeholder="Apna sawal yahan likho… (Enter dabane se bhi bhej sakte ho — Shift+Enter nayi line)" style="flex:1;min-height:56px"></textarea>
+      <button onclick="sendTutorFromBox()">Bhejo ➤</button>
+    </div>`;
+  const ta = document.getElementById("tutorInput");
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendTutorFromBox(); } });
+  const box = document.getElementById("chatBox"); box.scrollTop = box.scrollHeight;
+}
+function clearTutor() { state.tutorChat = []; save(); renderTutor(); }
+function askTutor(q) { state.tutorChat.push({ role: "user", text: q }); save(); renderTutor(); fetchTutorReply(q); }
+function sendTutorFromBox() { const ta = document.getElementById("tutorInput"); const q = ta.value.trim(); if (!q) return; askTutor(q); }
+function docSnippetsFor(q) {
+  const words = q.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+  return state.documents.filter((d) => { const hay = (d.name + " " + (d.textPreview || "")).toLowerCase(); return words.some((w) => hay.includes(w)); }).slice(0, 2).map((d) => ({ name: d.name, text: (d.textPreview || "").slice(0, 1500) }));
+}
+async function fetchTutorReply(q) {
+  const box = document.getElementById("chatBox");
+  const waitId = "wait-" + Date.now();
+  if (box) box.innerHTML += `<div id="${waitId}" style="margin:10px 0"><span class="tag">🤖 AI Teacher</span><div class="explain">Soch raha hai…</div></div>`;
+  let reply;
+  try {
+    const nx = nextTopic();
+    const r = await fetch("/api/ai/tutor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: state.tutorChat.slice(-8), context: { nextTopic: nx ? nx.name : "", dueRevisions: dueRevisions().map((t) => t.name), weakTopics: weakestTopics(3).map((w) => w.name), docSnippets: docSnippetsFor(q) } }) });
+    const d = await r.json();
+    if (d.mode === "ai") reply = d.reply;
+    else if (d.mode === "no-key") reply = offlineTutorReply(q) + "\n\nℹ️ Note: Abhi Gemini AI key lagi hui nahi hai, isliye ye jawab app ke andar ke data se diya hai. Key lagne ke baad main kisi bhi topic ko vistaar se samjha sakunga.";
+    else reply = "⚠️ " + (d.note || "AI se jawab nahi aaya.") + "\n\n" + offlineTutorReply(q);
+  } catch (e) { reply = offlineTutorReply(q); }
+  state.tutorChat.push({ role: "ai", text: reply }); save();
+  if (currentView === "tutor") renderTutor();
+}
+function offlineTutorReply(q) {
+  const s = q.toLowerCase();
+  if (/(aaj|today|padhun|plan|schedule)/.test(s)) {
+    return "Aaj ka plan tumhari progress ke hisaab se ye hai:\n" + todayTasks().map((t, i) => `${i + 1}. ${t.label} — ${t.mins} minute`).join("\n") + "\nPlanner page par jaakar tasks ko ek-ek karke complete mark karo.";
+  }
+  if (/(galti|mistake|error|kamzor|weak)/.test(s)) {
+    const errs = state.errors.filter((e) => !e.corrected);
+    if (!errs.length) return "Tumhari Error Notebook abhi saaf hai — koi baki galti nahi. Pehle kuch practice karo, jo galti hogi wo wahan jama hogi, fir mai pattern bata sakunga.";
+    const byTopic = {}; errs.forEach((e) => { byTopic[e.topic] = (byTopic[e.topic] || 0) + 1; });
+    return "Tumhari baki galtiyan (" + errs.length + "):\n" + Object.entries(byTopic).sort((a, b) => b[1] - a[1]).map(([t, c]) => `• ${t}: ${c} galtiyan`).join("\n") + "\nSalah: sabse upar wale topic ka lesson dobara padho aur fir Error Notebook se 'Sirf Galat Sawalo ki Practice' karo.";
+  }
+  const hit = ALL_TOPICS.find((t) => s.includes(t.name.toLowerCase().split(":")[0].trim().toLowerCase()) || t.name.toLowerCase().split(" ").filter((w) => w.length > 4).some((w) => s.includes(w.toLowerCase())));
+  if (hit) {
+    return `"${hit.name}" ka saar (app ke lesson se):\n${hit.intro}\n\nKey points:\n${hit.points.map((p) => "• " + p).join("\n")}\n\nExample: ${hit.example}\n\nPoora lesson kholne ke liye Learn page par "${hit.name}" chuno — wahan aakhir me 3 sawal ka check bhi hai.`;
+  }
+  return "Is sawal ka vistaar wala jawab AI key lagne ke baad milega. Tab tak ke liye: Learn page par apne topic ka lesson kholo — wahan intro, key points, worked example aur exam trap sab diya hai. Ya upar wale chips se 'Aaj kya padhun?' ya 'Meri galtiyan batao' puchh sakte ho — ye mai abhi bhi bata sakta hu.";
 }
 
 /* ---------------- Planner ---------------- */
@@ -722,7 +832,11 @@ async function renderSettings() {
   view.innerHTML = `
     <h1>Settings</h1>
     <div class="card">
-      <h3 style="margin-top:0">🕐 Roz ka Study Time</h3>
+      <h3 style="margin-top:0">👤 Tumhara Naam (Start par dikhega)</h3>
+      <div class="field"><label>Display name</label>
+      <input id="setName" style="width:100%" value="${esc(userName())}" /></div>
+      <button onclick="saveName()">Naam Save Karo</button>
+      <h3>🕐 Roz ka Study Time</h3>
       <div class="field"><label>Minutes per day (default 150 = 2.5 ghante)</label>
       <input type="number" id="setMinutes" value="${state.settings.dailyMinutes}" min="30" max="600" step="10" /> </div>
       <button onclick="saveMinutes()">Save</button>
@@ -738,6 +852,7 @@ async function renderSettings() {
     </div>`;
   try { const r = await fetch("/api/config/status"); const d = await r.json(); document.getElementById("apiStatus").innerHTML = `Gemini API: <b>${d.geminiConfigured ? "✅ Set hai" : "❌ Set nahi (Phase 2 me lagegi)"}</b> • YouTube API: <b>${d.youtubeConfigured ? "✅ Set hai" : "❌ Set nahi"}</b> • Supabase: <b>${d.supabaseConfigured ? "✅ Set hai" : "❌ Set nahi"}</b>`; } catch (e) { document.getElementById("apiStatus").textContent = "Server status nahi mila."; }
 }
+function saveName() { const v = document.getElementById("setName").value.trim(); if (v) { state.settings.displayName = v; save(); paintUserName(); toast("Naam save ho gaya — ab start par '" + v + "' dikhega."); } }
 function saveMinutes() { const v = parseInt(document.getElementById("setMinutes").value, 10); if (v >= 30 && v <= 600) { state.settings.dailyMinutes = v; save(); toast("Roz ka target " + v + " minute set ho gaya."); } }
 function setTheme(t) { state.settings.theme = t; document.documentElement.dataset.theme = t; $("#themeToggle").textContent = t === "dark" ? "☀️ Light Theme" : "🌙 Dark Theme"; save(); }
 function exportData() {
@@ -762,4 +877,5 @@ $("#globalSearch").addEventListener("input", (e) => {
 document.documentElement.dataset.theme = state.settings.theme || "light";
 $("#themeToggle").textContent = (state.settings.theme === "dark") ? "☀️ Light Theme" : "🌙 Dark Theme";
 $("#streakChip").textContent = "🔥 Streak: " + (state.streak || 0) + " din";
+paintUserName();
 renderDashboard();
