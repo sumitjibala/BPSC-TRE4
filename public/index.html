@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="hi" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TRE 4.0 Computer Science Success Academy</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-badge">TRE 4.0</div>
+      <div>
+        <div class="brand-name">CS Success Academy</div>
+        <div class="brand-sub">BPSC PGT Computer Science</div>
+      </div>
+    </div>
+    <nav id="nav">
+      <button data-view="dashboard" class="nav-btn active">🏠 Dashboard</button>
+      <button data-view="syllabus" class="nav-btn">📚 Official Syllabus</button>
+      <button data-view="learn" class="nav-btn">🎓 Learn Computer Science</button>
+      <button data-view="documents" class="nav-btn">📄 Documents & PYQ</button>
+      <button data-view="practice" class="nav-btn">✍️ MCQ Practice</button>
+      <button data-view="mock" class="nav-btn">⏱️ Mock Tests</button>
+      <button data-view="planner" class="nav-btn">🗓️ Study Planner</button>
+      <button data-view="revision" class="nav-btn">🔁 Revision Center</button>
+      <button data-view="errors" class="nav-btn">📕 Error Notebook</button>
+      <button data-view="notes" class="nav-btn">📝 My Notes</button>
+      <button data-view="analytics" class="nav-btn">📊 Performance Analytics</button>
+      <button data-view="settings" class="nav-btn">⚙️ Settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      <button id="themeToggle" class="ghost-btn">🌙 Dark Theme</button>
+      <div class="ver">Phase 1 • Provisional Syllabus</div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <button id="menuBtn" class="ghost-btn only-mobile">☰</button>
+      <input id="globalSearch" type="search" placeholder="Topic ya question search karo…" />
+      <div id="streakChip" class="chip">🔥 Streak: 0 din</div>
+    </header>
+    <div id="banner" class="banner"></div>
+    <section id="view"></section>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="data.js"></script>
+<script src="questions.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
